@@ -1,0 +1,145 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+require 'vagrant-openstack-provider'
+
+# script to deploy devstack kilo
+$script_devstack = <<SCRIPT
+# prep env and git clone
+sudo apt-get update 
+sudo apt-get install -y git vim 
+git clone https://github.com/openstack-dev/devstack.git devstack
+cd devstack
+git checkout stable/kilo
+# Build DevStack
+sudo cp samples/local.conf .
+sudo chown -R ubuntu ../devstack
+sudo su ubuntu -c "./stack.sh"
+cp /home/ubuntu/devstack/accrc/admin/admin /home/ubuntu
+SCRIPT
+
+# script to set up k2k in Service Provider
+$script_k2k_sp = <<SCRIPT
+sudo su ubuntu <<'EOF'
+sudo chmod +x /vagrant/modify_rcfile.sh
+/vagrant/modify_rcfile.sh
+cd /home/ubuntu/SP
+source /home/ubuntu/admin
+./env.sh
+EOF
+SCRIPT
+
+# script to set up k2k in Identity Provider
+$script_k2k_idp = <<SCRIPT
+sudo su ubuntu <<'EOF'
+sudo chmod +x /vagrant/modify_rcfile.sh
+/vagrant/modify_rcfile.sh
+cd /home/ubuntu/IdP
+source /home/ubuntu/admin
+./env.sh
+EOF
+SCRIPT
+
+require "yaml"
+
+_config = YAML.load(File.open(File.join(File.dirname(__FILE__), "vagrantconfig.yaml"), File::RDONLY).read)
+CONF = _config
+
+# Override vagrant configurations using environment variables
+keys = CONF.keys
+keys.each do |k| 
+  if ENV[k.upcase] != nil then
+     puts "Overide from environment variable: " + k.upcase + " = " + ENV[k.upcase]
+     if /^\d+/.match(ENV[k.upcase])
+        CONF[k] = Integer(ENV[k.upcase])
+     else
+        CONF[k] = ENV[k.upcase]
+     end 
+  end 
+end
+
+# get variables from vagrantconfig.yaml
+flavor = CONF['flavor']
+image_id = CONF['image_id']
+private_key_path = CONF['private_key_path']
+keypair_name = CONF['keypair_name']
+auth_url = CONF['auth_url']
+
+# Virtual machine definition and provision
+Vagrant.configure(2) do |config|
+  config.hostmanager.enabled = true
+
+  # define Identity Provider (IDP)
+  config.vm.define "k2k-idp" do |devstack|
+    devstack.ssh.username = 'ubuntu'
+    devstack.ssh.private_key_path = private_key_path
+
+    # define os instance
+    devstack.vm.provider :openstack do |os|
+      os.openstack_auth_url   = auth_url + "/tokens" 
+      os.username             = ENV['OS_USERNAME']
+      os.password             = ENV['OS_PASSWORD']
+      os.tenant_name          = ENV['OS_TENANT_NAME']
+      os.flavor               = flavor
+      os.server_name          = "k2k-idp"
+      os.image                = image_id
+      os.endpoint_type        = 'publicURL'
+      os.sync_method          = 'rsync'
+      os.keypair_name         = keypair_name
+    end
+
+    devstack.vm.provision "shell", inline: <<-SHELL
+      cat /dev/null > /etc/hosts
+    SHELL
+
+    devstack.vm.hostname = "k2k-idp"
+    devstack.vm.provision :hostmanager
+
+    # shell command to update vm and install devstack
+    devstack.vm.provision "shell", inline: $script_devstack
+
+    # sync folder to vm
+    devstack.vm.synced_folder "../auto-IdP", "/home/ubuntu/IdP"
+    devstack.vm.synced_folder "../auto-SP", "/home/ubuntu/SP"
+
+    # setup environment variable using rc file
+    devstack.vm.provision "shell", inline: $script_k2k_idp
+  end
+
+  # define Service Provider (SP)
+  config.vm.define "k2k-sp" do |devstack|
+    devstack.ssh.username = 'ubuntu'
+    devstack.ssh.private_key_path = private_key_path
+
+    # define os instance
+    devstack.vm.provider :openstack do |os|
+      os.openstack_auth_url   = auth_url + "/tokens"
+      os.username             = ENV['OS_USERNAME']
+      os.password             = ENV['OS_PASSWORD']
+      os.tenant_name          = ENV['OS_TENANT_NAME']
+      os.flavor               = flavor
+      os.server_name          = "k2k-sp"
+      os.image                = image_id
+      os.endpoint_type        = 'publicURL'
+      os.sync_method          = 'rsync'
+      os.keypair_name         = keypair_name
+    end
+
+    devstack.vm.provision "shell", inline: <<-SHELL
+      cat /dev/null > /etc/hosts
+    SHELL
+
+    devstack.vm.hostname = "k2k-sp"
+    devstack.vm.provision :hostmanager
+
+    # shell command to update vm and install devstack
+    devstack.vm.provision "shell", inline: $script_devstack
+
+    # sync folder to vm
+    devstack.vm.synced_folder "../auto-IdP", "/home/ubuntu/IdP"
+    devstack.vm.synced_folder "../auto-SP", "/home/ubuntu/SP"
+
+    # setup k2k in SP
+    devstack.vm.provision "shell", inline: $script_k2k_sp
+ end
+end

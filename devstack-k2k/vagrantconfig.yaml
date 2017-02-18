@@ -1,0 +1,30 @@
+# change to your choice of flavor of vm
+# This is the flavor of the vm, i.e the size of the vm
+# This should be one of the options that are available on your cloud
+# IMPORTANT: You need at least 4G of RAM and 1 Core for devstack
+# for example "lg.2core" 
+flavor: ""
+
+# change to your choice of ubuntu image
+# This is the UUID of the image that you are using
+# for example "8fdaf8aa-1409-454d1b478-fr3b84s5f5f4"
+image_id: ""
+
+# change to the path of your own private key on your host machine
+# This is where your private key file locates 
+# for example: "~/.ssh/cloud_key.pem"
+private_key_path: ""
+
+# change to the keypair name that's on your openstack project
+# This should be the key that's corresponding to the private key
+# you specified in private_key_path
+keypair_name: ""
+
+# change to the keystone endpoint url
+# you should be able to find this endpoint url on your Horizon
+# Project -> Access & Security -> API Access -> Identity
+# so far vagrant-openstack-provider supports Keystone v2
+# so if you have both keystone v2 and v3, please use the v2 url
+# for example your keystone endpoint url is "https://my.cloud.com:5000/v2.0"
+# then the auth_url here should be: "https://my.cloud.com:5000/v2.0"
+auth_url: ""
